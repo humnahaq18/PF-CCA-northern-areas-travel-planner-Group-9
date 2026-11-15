@@ -1,5 +1,5 @@
 /*
- * NORTHERN AREAS TRAVEL PLANNER  (Custom Trip Version)
+ * NORTHERN AREAS TRAVEL PLANNER
  *
  * What it does:
  *   1. Custom trips: create / view / delete (saved in trips.dat)
