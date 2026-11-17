@@ -1,10 +1,12 @@
 /*
- * NORTHERN AREAS TRAVEL PLANNER
+ * NORTHERN AREAS TRAVEL PLANNER  (Custom Trip Version)
  *
  * What it does:
  *   1. Custom trips: create / view / delete (saved in trips.dat)
  *   2. Hotel and transport cost estimation based on travellers and dates
- *   3. Reports
+ *   3. Customer details (name, contact number, Gmail) taken after a plan
+ *      is customized, followed by a reservation confirmation statement
+ *   4. Reports
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +20,11 @@
 #define TRIP_FILE       "trips.dat"
 #define COMPANY         "MERA SAFAR NAMA"
 #define CONTACT         "0300-9222-897"
+#define DETAIL_CONTACT  "0300-0987-215"   /* shown on the reservation statement */
+
+#define NAME_LEN        50
+#define PHONE_LEN       20
+#define EMAIL_LEN       60
 
 /* ====================== DATA TYPES ====================== */
 
@@ -44,6 +51,9 @@ typedef struct {
     int hotelID;
     int transportID;
     double hotelCost, transportCost, totalCost;
+    char custName[NAME_LEN];
+    char custPhone[PHONE_LEN];
+    char custEmail[EMAIL_LEN];
 } Trip;
 
 /* ====================== DATA TABLES ====================== */
@@ -141,6 +151,91 @@ static void title(const char *text)
     printf("\n--------------------------------------------------------------------\n");
     printf("                    %s\n", text);
     printf("--------------------------------------------------------------------\n");
+}
+
+/* remove spaces at the start and end of a string */
+static void trim(char *s)
+{
+    char *start = s;
+    size_t len;
+
+    while (isspace((unsigned char)*start)) start++;
+    memmove(s, start, strlen(start) + 1);
+    len = strlen(s);
+    while (len > 0 && isspace((unsigned char)s[len - 1]))
+        s[--len] = '\0';
+}
+
+/* ====================== CUSTOMER DETAILS ====================== */
+
+static int validName(const char *s)
+{
+    int letters = 0;
+    for (; *s; s++) {
+        if (isalpha((unsigned char)*s)) letters++;
+        else if (*s != ' ' && *s != '.' && *s != '\'' && *s != '-') return 0;
+    }
+    return letters >= 2;
+}
+
+/* accepts digits with optional leading +, dashes or spaces; 10 to 13 digits */
+static int validPhone(const char *s)
+{
+    int digits = 0;
+    const char *p;
+
+    for (p = s; *p; p++) {
+        if (isdigit((unsigned char)*p)) digits++;
+        else if (*p == '-' || *p == ' ' || (*p == '+' && p == s)) continue;
+        else return 0;
+    }
+    return digits >= 10 && digits <= 13;
+}
+
+/* must look like  something@gmail.com */
+static int validGmail(const char *s)
+{
+    static const char suffix[] = "@gmail.com";
+    size_t len = strlen(s), sl = sizeof suffix - 1, i;
+
+    if (len <= sl) return 0;
+    for (i = 0; i < sl; i++)
+        if (tolower((unsigned char)s[len - sl + i]) != suffix[i]) return 0;
+    for (i = 0; i < len - sl; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (!isalnum(c) && c != '.' && c != '_' && c != '+' && c != '-') return 0;
+    }
+    return 1;
+}
+
+static void inputCustomerDetails(Trip *t)
+{
+    char buf[100];
+
+    title("CUSTOMER DETAILS");
+    for (;;) {
+        readLine("Full name: ", buf, sizeof buf);
+        trim(buf);
+        if (validName(buf) && strlen(buf) < NAME_LEN) break;
+        printf("Please enter a valid name (letters only, up to %d characters).\n", NAME_LEN - 1);
+    }
+    strcpy(t->custName, buf);
+
+    for (;;) {
+        readLine("Contact number (e.g. 0300-1234567): ", buf, sizeof buf);
+        trim(buf);
+        if (validPhone(buf) && strlen(buf) < PHONE_LEN) break;
+        printf("Invalid number. Use 10 to 13 digits (dashes and a leading + are allowed).\n");
+    }
+    strcpy(t->custPhone, buf);
+
+    for (;;) {
+        readLine("Gmail address (e.g. name@gmail.com): ", buf, sizeof buf);
+        trim(buf);
+        if (validGmail(buf) && strlen(buf) < EMAIL_LEN) break;
+        printf("Invalid Gmail address. It must look like name@gmail.com.\n");
+    }
+    strcpy(t->custEmail, buf);
 }
 
 /* ====================== DATES ====================== */
@@ -357,6 +452,9 @@ static void showTrip(const Trip *t)
     int count = vehiclesNeeded(t->travellers, v->seats);
 
     title("CUSTOM TRIP SUMMARY");
+    if (t->custName[0] != '\0') {
+        printf("Name: %s\nContact: %s\nGmail: %s\n", t->custName, t->custPhone, t->custEmail);
+    }
     printf("Booking ID: %d\nTravellers: %d\nDeparture: ", t->id, t->travellers);
     printDate(t->checkIn);
     printf("\nReturn: ");
@@ -372,6 +470,20 @@ static void showTrip(const Trip *t)
     printf("Not included: fuel, food, tolls, parking, entry tickets, other expenses.\n");
 }
 
+static void printReservationStatement(const Trip *t)
+{
+    title("RESERVATION CONFIRMED");
+    printf("Dear %s,\n", t->custName);
+    printf("Booking #%d  |  %s  |  ", t->id, destNames[t->destID - 1]);
+    printDate(t->checkIn);
+    printf(" to ");
+    printDate(t->checkOut);
+    printf("\nTotal estimated cost: Rs. %.0f\n\n", t->totalCost);
+    printf("Your seats are reserved.\n");
+    printf("More further detail contact %s\n", DETAIL_CONTACT);
+    printf("--------------------------------------------------------------------\n");
+}
+
 static int findTrip(int id)
 {
     int i;
@@ -383,13 +495,19 @@ static int findTrip(int id)
 static void createTrip(void)
 {
     Trip t;
+
     buildTrip(&t);
     t.id = nextTripID;
-    showTrip(&t);
+    showTrip(&t);                       /* plan summary first */
+
+    inputCustomerDetails(&t);           /* then name, contact and Gmail */
+
     if (!appendTrip(&t)) return;
     nextTripID++;
     saveTrips();
-    printf("Booking #%d saved.\n", t.id);
+
+    showTrip(&t);                       /* final copy including customer details */
+    printReservationStatement(&t);
 }
 
 static void deleteTrip(void)
@@ -416,14 +534,14 @@ static void showSavedTrips(void)
     }
 
     title("SAVED TRIPS");
-    printf("%-12s %-12s %-14s %-14s %14s\n",
-           "Booking ID", "Travellers", "Departure", "Return", "Total (PKR)");
+    printf("%-11s %-20s %-5s %-12s %-12s %12s\n",
+           "Booking ID", "Name", "Pax", "Departure", "Return", "Total (PKR)");
     for (i = 0; i < tripCount; i++) {
-        printf("#%-11d %-12d ", trips[i].id, trips[i].travellers);
+        printf("#%-10d %-20.20s %-5d ", trips[i].id, trips[i].custName, trips[i].travellers);
         printDate(trips[i].checkIn);
-        printf("    ");
+        printf("   ");
         printDate(trips[i].checkOut);
-        printf("    %14.0f\n", trips[i].totalCost);
+        printf("   %12.0f\n", trips[i].totalCost);
     }
 }
 
